@@ -48,7 +48,7 @@ export const authRoutes = new Elysia({ prefix: "/api/v1/auth" })
     }
   }, {
     body: t.Object({
-      name: t.String(),
+      name: t.String({ maxLength: 255, error: "Nama tidak boleh melebihi 255 karakter" }),
       email: t.String({ format: "email" }),
       password: t.String()
     })

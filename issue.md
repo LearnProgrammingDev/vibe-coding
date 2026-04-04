@@ -1,72 +1,45 @@
-# [Feature] API Logout User
+# [BUG] Error 500 saat Registrasi dengan Nama Lebih dari 255 Karakter
 
-## Tujuan
-Membuat fitur (API Endpoint) fungsional agar *user* bisa melakukan proses *logout*. Saat berhasil, akses *session* pengguna yang tersimpan di dalam database akan dihancurkan.
+## Deskripsi Bug
+Pada saat melakukan pendaftaran pengguna (`POST /api/v1/auth/register`), apabila pengguna mencoba mendaftar menggunakan jumlah teks nama (parameter `name`) yang sangat panjang melebihi 255 karakter, aplikasi tidak merespons secara mulus sebagai *Bad Request* melainkan *crash* pada koneksi database (MySQL). Ini berujung mengembalikan **HTTP Status 500 (Internal Server Error)** ke sisi *client*.
 
-## Spesifikasi Endpoint
+## Langkah-langkah Reproduksi
+1. Buka Postman / cURL untuk menguji Endpoint lokal.
+2. Lakukan operasi request `POST /api/v1/auth/register`.
+3. Di dalam *body* JSON, sertakan payload dengan nama lebih dari 255 huruf (misal A x300).
+   ```json
+   {
+     "name": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+     "email": "panjang@example.com",
+     "password": "bebas"
+   }
+   ```
+4. Kirim *request*.
+5. Respons akan melempar kode `500` secara samar:
+   ```json
+   {
+     "status": "error",
+     "message": "Internal Server Error",
+     "data": null
+   }
+   ```
 
-- **Metode HTTP**: `DELETE`
-- **Path Endpoint**: `/api/v1/users/logout` *(Note: Menyesuaikan prefix api/v1 yang sudah ada agar rapi)*
-- **Header Dibutuhkan**:
-  - `Authorization`: `Bearer <token>` (Token merupakan UUID yang didapatkan *user* saat Login).
+## Akar Masalah (Root Cause)
+Terjadi ketidakselarasan batasan data pada dua lapisan *backend*.
+- **Database Layer**: Pada `src/db/schema.ts`, kolom sudah didefinisikan teguh sebagai `varchar("name", { length: 255 })`.
+- **Controller/Route Layer**: Pada validasi skema TypeBox ElysiaJS (`src/routes/auth.route.ts`), parameter input hanya dicek menggunakan `t.String()` tanpa dibekali batas `maxLength: 255`.
+- String berbahaya sepanjang 300 huruf sukses lolos dari perisai Elysia namun meremukkan MySQL *(error "Data too long")*. Karena error tidak tertangani secara spesifik, kode penangkap *catch global* merangkumnya menjadi HTTP 500.
 
-### Format Respon
-Untuk menjaga **konsistensi**, kita tetap membungkus balikan dalam format standar aplikasi (status, message, data).
+## Ekspektasi Perbaikan (Expected Fix)
+Lengkapi restriksi parameter `name` menggunakan properti TypeBox milik Elysia sehingga bisa divalidasi langsung di depan gerbang.
 
-**1. Jika Sukses (HTTP Status 200)**
-```json
-{
-    "status": "success",
-    "message": "Logout successful",
-    "data": "ok"
-}
+Disarankan mengubah blok validasinya di `auth.route.ts` menjadi:
+```typescript
+body: t.Object({
+  name: t.String({ 
+    maxLength: 255, 
+    error: "Nama tidak boleh melebihi 255 karakter" 
+  }),
+  // ... parameter lain ...
+})
 ```
-
-**2. Jika Gagal (Cth: Tidak Ada Header / Token Tidak Valid) (HTTP Status 401)**
-```json
-{
-    "status": "error",
-    "message": "unauthorized",
-    "data": null
-}
-```
-
----
-
-## Ketentuan Struktur File (Konsisten)
-Pastikan kode ditulis pada folder dan file yang tepat (dan sudah ada sebelumnya):
-- **Routing**: Letakkan pada `src/routes/users.route.ts` *(berisi rute ElysiaJS Controller).*
-- **Business Logic**: Letakkan pada `src/services/user-service.ts` *(berisi interaksi Database / Drizzle).*
-
----
-
-## 🛠️ Tahapan Implementasi untuk Junior Programmer / AI
-Harap ikuti langkah kerja (*Workflow*) terstruktur di bawah ini satu-persatu agar kode tidak acak-acakan:
-
-### Tahap 1: Eksekusi Logika Bisnis & Database
-Tugas Anda adalah menempatkan proses *query* ini di ranah *Services*.
-
-1. Buka file `src/services/user-service.ts`.
-2. Buat dan *export* sebuah fungsi asinkron dengan nama `logoutUser(token: string)`.
-3. Di dalam skripnya, gunakan sintaks pembantu ORM (Drizzle) untuk menghapus kolom pada tabel `session`.
-   - Contoh Drizzle Query: `await db.delete(session).where(eq(session.token, token));`
-4. Cek hasil operasi *delete* tersebut. 
-   - Jika proses gagal atau tidak ada row yang cocok dengan token, kembalikan objek JSON error `unauthorized`.
-   - Jika *delete* berhasil, kembalikan JSON *return success* yang di dalamnya memuat `"data": "ok"`.
-
-### Tahap 2: Pembuatan Routing / Controller API
-Tugas Anda ini menangani permintaan masuk dari Client di ranah *Routes*.
-
-1. Buka file `src/routes/users.route.ts`.
-2. Lakukan *chaining endpoint* baru `.delete('/logout', async ({ headers, set }) => { ... })` ke dalam blok Elysia instance yang sudah ada.
-3. Ambil `headers.authorization`. Validasi jika isinya **kosong** atau **bukan berawalan "Bearer "**. Bila benar tidak sesuai, set `set.status = 401` lalu berikan objek *return error authorized*.
-4. Lakukan pemisahan string (*split*) untuk membuang teks `"Bearer "` dan murni mengambil nilai `<token>`.
-5. Panggil method pembantu `logoutUser(token)` yang sudah dibuat di Tahap 1.
-6. Periksa balikan objeknya (kondisi sukses atau gagal), dan kembalikan secara langsung balikan dari *service* tersebut ke Client Response. (Ingat untuk menyesuaikan `set.status = 200` jika aman, dan `401` jika error).
-
-### Tahap 3: Verifikasi dan Testing Lokal
-1. Hidupkan server dengan command `bun run dev` (atau command yang relevan di `package.json`).
-2. Login pengguna menggunakan Postman/cURL ke `POST /api/v1/auth/login`. Salin nilai token dari respon API tersebut.
-3. Jalankan request ke endpoint baru Anda `DELETE /api/v1/users/logout` menggunakan JWT/Bearer hasil di atas. Pastikan ia merespons sukses `data: ok`.
-4. Ulangi menembak header tersebut (atau coba tanpa otorisasi), pastikan respon beralih menjadi 401 Unathorized. 
-5. Cek database tabel `session` untuk validasi akhir token benar-benar terhapus.
