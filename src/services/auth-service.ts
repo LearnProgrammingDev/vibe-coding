@@ -3,6 +3,14 @@ import { db } from "../db";
 import { users, session } from "../db/schema";
 import crypto from "crypto";
 
+/**
+ * Memvalidasi kredensial login pengguna terhadap data yang ada di database.
+ * Setelah proses verifikasi kata sandi (*hash*) berhasil, fungsi ini akan membuatkan 
+ * token sesi unik yang terhubung dengan pengguna dan menyimpannya secara aman.
+ * 
+ * @param {any} payload - Paket kredensial yang diminta, berisi `.email` dan `.password`.
+ * @returns {Promise<object>} Respons standar API yang memuat info/profil pengguna beserta token aktifnya.
+ */
 export const loginUser = async (payload: any) => {
   // Cek eksistensi user berdasar email
   const [user] = await db.select().from(users).where(eq(users.email, payload.email));
@@ -48,6 +56,14 @@ export const loginUser = async (payload: any) => {
   };
 };
 
+/**
+ * Mendaftarkan akun pengguna baru ke dalam sistem.
+ * Melakukan pengecekan duplikasi *email*, menyandikan (*encrypt*) kata sandi secara aman 
+ * menggunakan *hash bcrypt* bawaan Bun, lalu menyimpannya ke tabel `users`.
+ * 
+ * @param {any} payload - Data registrasi pengguna, biasanya terdiri dari `.name`, `.email`, dan `.password`.
+ * @returns {Promise<object>} Objek sukses yang mengembalikan rincian pengguna baru, atau error apabila terjadi konflik (duplikasi).
+ */
 export const registerUser = async (payload: any) => {
   // Cek apakah email sudah terdaftar
   const existingUser = await db.select().from(users).where(eq(users.email, payload.email));
