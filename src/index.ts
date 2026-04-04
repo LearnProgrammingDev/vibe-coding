@@ -2,9 +2,11 @@ import { Elysia } from "elysia";
 import { db } from "./db";
 import { users } from "./db/schema";
 import { authRoutes } from "./routes/auth.route";
+import { usersRoutes } from "./routes/users.route";
 
 const app = new Elysia()
   .use(authRoutes)
+  .use(usersRoutes)
   .get("/", () => {
     return { message: "Hello Elysia!", status: "ok" };
   })
