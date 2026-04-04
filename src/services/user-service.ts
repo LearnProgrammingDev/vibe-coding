@@ -34,3 +34,21 @@ export const getCurrentUser = async (token: string) => {
     }
   };
 };
+
+export const logoutUser = async (token: string) => {
+  const [result] = await db.delete(session).where(eq(session.token, token));
+
+  if (result.affectedRows === 0) {
+    return {
+      status: "error",
+      message: "unauthorized",
+      data: null
+    };
+  }
+
+  return {
+    status: "success",
+    message: "Logout successful",
+    data: "ok"
+  };
+};
